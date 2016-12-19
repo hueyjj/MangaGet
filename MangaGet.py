@@ -1,4 +1,6 @@
 import sys, os, time, urllib, urllib.request, shutil
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -11,6 +13,7 @@ def new_chrome_browser(logFile):
         return browser
     except:
         writeLog(logFile, "[ERROR] Failed to load chrome webdriver")
+        writeLog(logFile, sys.exc_info()[0])
         sys.exit()
 
 def open_site(browser, url, logFile):
@@ -28,6 +31,7 @@ def reverse_array(arr, logFile):
             p2 -= 1
     else:
         writeLog(logFile, "reverse_array() ERROR: cannot reverse empty array")
+        writeLog(logFile, sys.exc_info()[0])
 
 def sleep(sec, logFile):
     str_sec = str(sec)
@@ -36,9 +40,9 @@ def sleep(sec, logFile):
     time.sleep(sec)
 
 def writeLog(logFile, text):
-    print(text)
+    print(str(text))
     flush()
-    logFile.write(text + "\n")
+    logFile.write(str(text) + "\n")
     logFile.flush()
     os.fsync(logFile.fileno())
 
@@ -73,17 +77,14 @@ def main(argv):
     writeLog(logFile, manga_name + " manga directory created")
 
     ## Open webdriver
-    try:
-        chrome_browser = new_chrome_browser(logFile)
-    except:
-        writeLog(logFile, "[ERROR] Failed to load chrome webdriver\n")
-        sys.exit()
+    chrome_browser = new_chrome_browser(logFile)
 
     ## Load root url
     try:
         open_site(chrome_browser, root_url, logFile)
     except:
         logFile.write("[ERROR] Failed to load url\n")
+        writeLog(logFile, sys.exc_info()[0])
 
     writeLog(logFile, "Manga root url loaded")
 
@@ -118,40 +119,62 @@ def main(argv):
         try:
             writeLog(logFile, "Loading " + manga_name + " chapter " + str(i+1) + " url...")
             open_site(chrome_browser, chapter_urls[i], logFile)
-            writeLog(logFile, "Chapter " + str(i+1) + " url loaded")
-
             wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="divImage"]//img[@src]')))
-            #sleep(4, logFile)
+            writeLog(logFile, "Chapter " + str(i+1) + " url loaded")
 
             ## Get image sources urls
             writeLog(logFile, "Retrieving image source url(s)...")
             try:
-                for image in chrome_browser.find_elements_by_xpath('//div[@id="divImage"]//img[@src]'):
-                    image_sources.append(image.get_attribute('src'))
+                # for image in chrome_browser.find_elements_by_xpath('//div[@id="divImage"]//img[@src]'):
+                #     print("html src: " + str(image.get_attribute('src')))
+                #     flush()
+                #     image_sources.append(image.get_attribute('src'))
+                html_src = BeautifulSoup(chrome_browser.page_source, "html.parser")
+                for src in html_src.find_all(attrs={"id":"divImage"}):
+                    for link in src.find_all("img"):
+                        image_sources.append(link.get("src"))
+                        print(link)
             except:
                 writeLog(logFile, "[ERROR] Failed to find image source url(s)")
+                writeLog(logFile, sys.exc_info()[0])
                 sys.exit()
 
             writeLog(logFile, "Image source url(s) retrieved")
 
             image_count = len(image_sources)
 
+            x = 0
+            for src in image_sources:
+                writeLog(logFile, src)
+                x += 1
+
+            writeLog(logFile, "Number of image sources: " + str(x))
+
             ## Save the images
             for x in range(0, image_count):
                 try:
                     image_name = manga_name + " ch " + str(i+1) + " - " + str(x) + ".png"
-                    urllib.request.urlretrieve(image_sources[x], image_name)
+                    p_image_source = image_sources[x]
+                    p_url = urlparse(p_image_source)
+
+                    if p_url.scheme != "http" and p_url.scheme != "https":
+                        p_image_source += "https://"
+
+                    print("[CHECK] img src: " + p_image_source)
+                    urllib.request.urlretrieve(p_image_source, image_name)
                     shutil.move(image_name, dir) # move image to respective directory
                     writeLog(logFile, image_name + " saved")
                 except:
                     writeLog(logFile, "[ERROR] Failed to save " + image_name + ". Failed URL: " +
                              image_sources[x]);
+                    writeLog(logFile, sys.exc_info()[0])
 
             writeLog(logFile, "Images saved")
         except:
             writeLog(logFile, "[ERROR] Failed to load url OR\n"+
                      "Failed to retrieve image from image source urls OR\n"
                      "Failed to save image to disk")
+            writeLog(logFile, sys.exc_info()[0])
 
         ## Reset and repeat (get next url)
         image_sources[:] = []
