@@ -26,7 +26,7 @@ def reverse_array(arr, logFile):
         p2 = length - 1
         mid_point = len(arr) // 2
         for p1 in range(0, mid_point):
-            temp = arr[p2]
+            temp = arr[p2]        
             arr[p2] = arr[p1]
             arr[p1] = temp
             p2 -= 1
@@ -41,7 +41,7 @@ def sleep(sec, logFile):
     time.sleep(sec)
 
 def writeLog(logFile, text):
-    print(str(text))
+    sys.stdout.write(str(text) + "\n")
     flush()
     logFile.write(str(text) + "\n")
     logFile.flush()
@@ -111,19 +111,17 @@ def main(argv):
     reverse_array(chapter_titles, logFile)
 
     ## Iterate through each chapter url
-    
+
     formats = ['.jpg', '.png', '.jpeg', '.gif', '.tif']
     num_chapters = len(chapter_urls)
     for i in range(0, num_chapters):
 
         ## Make chapter directory
-
+        writeLog(logFile, "===========================================")
         dir = manga_name + "/" + manga_name + " Chapter " + str(i+1)
         if not os.path.exists(dir):
             os.makedirs(dir)
             writeLog(logFile, dir + " directory created")
-
-        writeLog(logFile, "===========================================")
 
         ## Load chapter url
 
@@ -141,8 +139,8 @@ def main(argv):
                 break
         else:
             writeLog(logFile, "[ERROR] Unable to load Chapter " + str(i+1) + " url")
-            sys.exit()
-            
+            continue
+
         ## Get image sources urls
 
         writeLog(logFile, "Retrieving image source url(s)...")
@@ -182,7 +180,7 @@ def main(argv):
         # for src in image_sources:
         #     writeLog(logFile, src)
         #     x += 1
-
+ 
         writeLog(logFile, "Number of image sources: " + str(len(image_sources)))
 
 
@@ -235,8 +233,8 @@ def main(argv):
             else:
                 writeLog(logFile, "[ERROR] " + image_name + " does not exist")
 
+
         ## Reset and repeat (get next chapter url)
-        # image_sources[:] = []
 
     chrome_browser.close()
     logFile.close()
