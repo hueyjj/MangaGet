@@ -1,4 +1,4 @@
-import sys, os, time, urllib, urllib.request, shutil, re
+import sys, os, time, urllib, urllib.request, shutil, re, lxml
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from selenium import webdriver
@@ -55,6 +55,7 @@ def main(argv):
     ## TODO Code review + Proper error checking for everything + Restructure code
 
     ## TODO validate url
+
     if len(argv) != 1:
         print("File usage: python MangaGet.py URL")
         sys.exit()
@@ -62,14 +63,15 @@ def main(argv):
         root_url = argv[0]
 
     ## TODO find safer way to determine name of manga: user input?
+
     index = root_url.rfind('/') + 1
     manga_name = root_url[index:]
 
     chapter_urls = []
     chapter_titles = []
-    image_sources = []
 
     ## Make new directory
+
     if not os.path.exists(manga_name):
         os.makedirs(manga_name)
 
@@ -80,9 +82,11 @@ def main(argv):
     writeLog(logFile, manga_name + " manga directory created")
 
     ## Open webdriver
+
     chrome_browser = new_chrome_browser(logFile)
 
     ## Load root url
+
     try:
         open_site(chrome_browser, root_url, logFile)
     except:
@@ -94,14 +98,12 @@ def main(argv):
 
     wait = WebDriverWait(chrome_browser, 60)
     wait.until(EC.presence_of_element_located((By.XPATH, '//table[@class="listing"]//a[@href]')))
-    #sleep(10, logFile)
 
     ## Gets manga chapter urls
+
     for url in chrome_browser.find_elements_by_xpath('//table[@class="listing"]//a[@href]'):
         chapter_urls.append(url.get_attribute('href'))
         chapter_titles.append(url.get_attribute('title')) # unused
-        #writeLog(logFile, url.get_attribute('href'))
-        #writeLog(logFile, url.get_attribute('title'))
 
     writeLog(logFile, "Manga urls and chapters loaded")
 
@@ -109,43 +111,59 @@ def main(argv):
     reverse_array(chapter_titles, logFile)
 
     ## Iterate through each chapter url
+    
+    formats = ['.jpg', '.png', '.jpeg', '.gif', '.tif']
     num_chapters = len(chapter_urls)
     for i in range(0, num_chapters):
 
         ## Make chapter directory
+
         dir = manga_name + "/" + manga_name + " Chapter " + str(i+1)
         if not os.path.exists(dir):
             os.makedirs(dir)
-            writeLog(logFile, "===========================================")
             writeLog(logFile, dir + " directory created")
 
+        writeLog(logFile, "===========================================")
+
         ## Load chapter url
+
         writeLog(logFile, "Loading " + manga_name + " chapter " + str(i+1) + " url...")
 
-        open_site(chrome_browser, chapter_urls[i], logFile)
-        wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="divImage"]//img[@src]')))
-
-        # try:
-        #     chrome_browser.set_page_load_timeout(60)
-        # except:
-        #     print("error!")
-        # old_page = chrome_browser.find_element_by_id("divImage")
-        # wait.until(EC.staleness_of(old_page))
-
-        writeLog(logFile, "Chapter " + str(i+1) + " url loaded")
-
+        for attempt in range(10):
+            try:
+                open_site(chrome_browser, chapter_urls[i], logFile)
+                #wait.until(EC.presence_of_element_located((By.XPATH, '//div[@id="divImage"]]')))
+                wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, 'script')))
+                writeLog(logFile, "Chapter " + str(i+1) + " url loaded")
+            except:
+                continue
+            else:
+                break
+        else:
+            writeLog(logFile, "[ERROR] Unable to load Chapter " + str(i+1) + " url")
+            sys.exit()
+            
         ## Get image sources urls
+
         writeLog(logFile, "Retrieving image source url(s)...")
-        html_src = BeautifulSoup(chrome_browser.page_source, "html.parser")
 
-        for script in html_src.find_all("script"):
-            if "googleusercontent" in str(script):
-                urls = re.findall(r'(https?://\S+)', str(script))
+        html_src = BeautifulSoup(chrome_browser.page_source, "lxml")
+        urls = []
+        image_sources = []
 
-        for img_src in urls:
-            if "googleusercontent" in img_src:
-                valid_img_src = str.replace(img_src, ";", "&")
-                image_sources.append(valid_img_src)
+        for javascript in html_src.find_all("script"):
+            for ext in formats:
+                if ext in str(javascript):
+                    urls = re.findall(r'(https?://\S+)', str(javascript))
+                    for img_src in urls:
+                        for ext_t in formats:
+                            if ext_t in img_src:
+                                valid_img_src = str.replace(img_src, ";", "&")
+                                image_sources.append(valid_img_src)
+
+        if len(image_sources) == 0:
+            writeLog(logFile, "[ERROR] No image urls found")
+            sys.exit()
 
         # writeLog(logFile, html_src.prettify())
         # for src in html_src.find_all(attrs={"id":"divImage"}):
@@ -160,15 +178,18 @@ def main(argv):
 
         writeLog(logFile, "Image source url(s) retrieved")
 
-        x = 0
-        for src in image_sources:
-            writeLog(logFile, src)
-            x += 1
+        # x = 0
+        # for src in image_sources:
+        #     writeLog(logFile, src)
+        #     x += 1
 
-        writeLog(logFile, "Number of image sources: " + str(x))
+        writeLog(logFile, "Number of image sources: " + str(len(image_sources)))
+
+
+        ## Load each image source urls
 
         image_count = len(image_sources)
-        ## Save the images
+
         for x in range(0, image_count):
 
             image_name = manga_name + " ch " + str(i+1) + " - " + str(x) + ".png"
@@ -176,21 +197,46 @@ def main(argv):
             p_url = urlparse(p_image_source)
 
             if p_url.scheme != "http" and p_url.scheme != "https":
-                p_image_source += "https://"
+                p_image_source = "https://" + p_image_source
 
-            print("[CHECK] img src: " + p_image_source)
-            urllib.request.urlretrieve(p_image_source, image_name)
+            ## Retrieve and save image
 
-            if os.path.isfile(image_name) is False :
-                writeLog(logFile, "[ERROR] Failed to retrieve " + image_name)
+            try:
+                r = urllib.request.Request(p_image_source)
+                with urllib.request.urlopen(r) as response:
+                    f = open(image_name, "wb")
+                    f.write(response.read())
+                    f.close()
+            except:
+                try:
+                    writeLog(logFile, "[WARNING] " + image_name + " might be corrupted")
+                    writeLog(logFile, "Trying to retrieve " + image_name + " again...")
+                    r = urllib.request.Request(p_image_source)
+                    with urllib.request.urlopen(r) as response:
+                        f = open(image_name, "wb")
+                        f.write(response.read())
+                        f.close()
+                except:
+                    writeLog(logFile, "Trying again (3rd time) but with different method...")
+                    try:
+                        urllib.request.urlretrieve(p_image_source, image_name)
+                    except:
+                        writeLog(logFile, "[ERROR] Failed to retrieve " + image_name)
 
-            shutil.move(image_name, dir) # move image to respective directory
-            writeLog(logFile, image_name + " saved")
+            if os.path.isfile(image_name) is True:
+                file_info = os.stat(image_name)
+                file_size = file_info.st_size
 
-        writeLog(logFile, "Images saved")
+                if file_size is 0:
+                    writeLog(logFile, "[ERROR] Bad file. Failed to save " + image_name)
+                else:
+                    shutil.move(image_name, dir) # move image to respective directory
+                    writeLog(logFile, image_name + " saved")
+            else:
+                writeLog(logFile, "[ERROR] " + image_name + " does not exist")
 
-        ## Reset and repeat (get next url)
-        image_sources[:] = []
+        ## Reset and repeat (get next chapter url)
+        # image_sources[:] = []
 
     chrome_browser.close()
     logFile.close()
